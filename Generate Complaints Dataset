@@ -1,0 +1,30 @@
+SELECT
+  DATE_ADD(chain_start_date, INTERVAL 1 DAY) AS submission_date
+  ,customer_id
+FROM
+(
+  SELECT
+    emails.id
+    ,customer_id
+    ,chain_start_date
+    ,chain_end_date
+    ,agent_responses
+    ,agents.start_date
+    ,PERCENT_RANK() OVER(ORDER BY agent_responses) AS query_complexity_rank
+    ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(chain_end_date, chain_start_date, DAY)) AS resolve_time_rank
+    ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(chain_start_date, agents.start_date, DAY) DESC) AS agent_inexperience_rank
+  FROM
+    `so-energy-test.generated_sources.email_chains` emails
+  LEFT JOIN
+    `so-energy-test.generated_sources.agents` agents
+  ON
+    emails.agent_id = agents.id
+  
+)
+WHERE
+  RAND() > (query_complexity_rank/2) + resolve_time_rank + agent_inexperience_rank
+
+
+  
+
+  

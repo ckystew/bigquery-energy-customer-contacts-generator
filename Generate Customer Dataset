@@ -1,0 +1,29 @@
+SELECT 
+  LPAD(CAST(id AS STRING), 4, '0') AS id
+  ,name
+  ,gas_kwh_last_3_months_billed
+  ,electricity_kwh_last_3_months_billed
+  ,IF(DATE_DIFF(CURRENT_DATE(), random_date, DAY) > 92, NULL, random_date) AS last_meter_reading_last_3_months
+FROM (
+  SELECT
+      id
+      ,ROUND(3000 * (RAND()*2), 2) AS gas_kwh_last_3_months_billed
+      ,ROUND(675 * (RAND()*2), 2) AS electricity_kwh_last_3_months_billed
+      ,DATE_FROM_UNIX_DATE(CAST(start + (finish - start) * RAND() AS INT64)) random_date
+  FROM
+    UNNEST(GENERATE_ARRAY(1, 1000)) AS id
+    ,UNNEST([STRUCT(UNIX_DATE('2023-12-01') AS start, UNIX_DATE(CURRENT_DATE()) AS finish)])
+) a
+LEFT JOIN (
+  SELECT
+    ROW_NUMBER() OVER() as rn
+    ,name
+  FROM (
+    SELECT DISTINCT
+      inventor_line_1 as name
+    FROM 
+      `bigquery-public-data.labeled_patents.extracted_data`
+  )
+) names
+ON names.rn = a.id
+WHERE names.name IS NOT NULL
