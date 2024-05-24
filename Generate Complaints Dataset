@@ -1,30 +1,166 @@
-SELECT
-  DATE_ADD(chain_start_date, INTERVAL 1 DAY) AS submission_date
-  ,customer_id
-FROM
-(
+SELECT 
+  a.submission_date
+  ,ROW_NUMBER() OVER() AS id
+  ,a.customer_id
+  ,complaint_types.reason
+FROM (
+
   SELECT
-    emails.id
+    DATE_ADD(chain_end_date, INTERVAL 1 DAY) AS submission_date
     ,customer_id
-    ,chain_start_date
-    ,chain_end_date
-    ,agent_responses
-    ,agents.start_date
-    ,PERCENT_RANK() OVER(ORDER BY agent_responses) AS query_complexity_rank
-    ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(chain_end_date, chain_start_date, DAY)) AS resolve_time_rank
-    ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(chain_start_date, agents.start_date, DAY) DESC) AS agent_inexperience_rank
+    ,"Email" AS contact_type
+    ,(query_complexity_rank/16) + resolve_time_rank/2 + agent_inexperience_rank/4 + (1-(agent_productivity/4)) AS interaction_experience_rating
   FROM
-    `so-energy-test.generated_sources.email_chains` emails
-  LEFT JOIN
-    `so-energy-test.generated_sources.agents` agents
-  ON
-    emails.agent_id = agents.id
-  
-)
+  (
+    SELECT
+      emails.id
+      ,customer_id
+      ,chain_start_date
+      ,chain_end_date
+      ,agent_responses
+      ,agents.start_date
+      ,PERCENT_RANK() OVER(ORDER BY agent_responses) AS query_complexity_rank
+      ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(chain_end_date, chain_start_date, DAY)) AS resolve_time_rank
+      ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(chain_start_date, agents.start_date, DAY) DESC) AS agent_inexperience_rank
+      ,SAFE_DIVIDE(COUNT(*) OVER(PARTITION BY emails.agent_id ORDER BY chain_start_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), DATE_DIFF(chain_start_date, agents.start_date, DAY)) AS agent_productivity
+    FROM
+      `so-energy-test.generated_sources.email_chains` emails
+    LEFT JOIN
+      `so-energy-test.generated_sources.agents` agents
+    ON
+      emails.agent_id = agents.id
+    
+    )
+
+    UNION ALL 
+
+    SELECT
+      DATE_ADD(call_start_date, INTERVAL 1 DAY) AS submission_date
+      ,customer_id
+      ,'Call'
+      ,(length_of_call_rank/3) + (length_of_hold_rank*2) + (agent_inexperience_rank/2) + (1-(agent_productivity/4)) AS interaction_experience_rating
+    FROM (
+      SELECT
+        calls.id
+        ,customer_id
+        ,call_start_date
+        ,PERCENT_RANK() OVER(ORDER BY call_length_seconds) AS length_of_call_rank
+        ,PERCENT_RANK() OVER(ORDER BY hold_length_seconds) AS length_of_hold_rank
+        ,PERCENT_RANK() OVER(ORDER BY DATE_DIFF(calls.call_start_date, agents.start_date, DAY) DESC) AS agent_inexperience_rank
+      ,SAFE_DIVIDE(COUNT(*) OVER(PARTITION BY calls.agent_id ORDER BY call_start_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), DATE_DIFF(call_start_date, agents.start_date, DAY)) AS agent_productivity
+      FROM
+        `so-energy-test.generated_sources.calls` calls
+      LEFT JOIN
+        `so-energy-test.generated_sources.agents` agents
+      ON
+        calls.agent_id = agents.id
+    ) a
+) a
+LEFT JOIN (
+  SELECT
+    id
+    ,gas_kwh_last_3_months_billed
+    ,last_meter_reading_last_3_months
+    ,PERCENT_RANK() OVER(ORDER BY gas_kwh_last_3_months_billed DESC) AS gas_usage_rank
+    ,PERCENT_RANK() OVER(ORDER BY electricity_kwh_last_3_months_billed DESC) AS electricity_usage_rank
+    ,PERCENT_RANK() OVER(ORDER BY last_meter_reading_last_3_months DESC) AS last_meter_reading_rank
+  FROM
+    `so-energy-test.generated_sources.customers`
+) customers
+ON
+  a.customer_id = customers.id
+LEFT JOIN (
+    SELECT
+        *
+        ,LEAD(from_date) OVER(PARTITION BY id ORDER BY from_date) AS to_date
+    FROM (
+      SELECT '2022-01-01' AS from_date, "Payment Issue" AS reason, 1 AS id
+      UNION ALL SELECT '2022-01-01', "Billing Issue", 2
+      UNION ALL SELECT '2022-01-01', "Miscellaneous", 3
+      UNION ALL SELECT '2022-01-01', "Miscellaneous", 4
+      UNION ALL SELECT '2022-01-01', "Maintenance Issue", 5
+      UNION ALL SELECT '2022-01-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2022-01-01', "Meter Reading Issue", 7
+      UNION ALL SELECT '2022-01-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2022-01-01', "Miscellaneous", 9
+      UNION ALL SELECT '2022-01-01', "Miscellaneous", 10
+
+      UNION ALL SELECT '2023-01-01', "Billing Issue", 1
+      UNION ALL SELECT '2023-01-01', "Billing Issue", 2
+      UNION ALL SELECT '2023-01-01', "Miscellaneous", 3
+      UNION ALL SELECT '2023-01-01', "Miscellaneous", 4
+      UNION ALL SELECT '2023-01-01', "Maintenance Issue", 5
+      UNION ALL SELECT '2023-01-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2023-01-01', "Payment Issue", 7
+      UNION ALL SELECT '2023-01-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2023-01-01', "Payment Issue", 9
+      UNION ALL SELECT '2023-01-01', "Miscellaneous", 10
+
+      UNION ALL SELECT '2023-11-01', "Billing Issue", 1
+      UNION ALL SELECT '2023-11-01', "Billing Issue", 2
+      UNION ALL SELECT '2023-11-01', "Miscellaneous", 3
+      UNION ALL SELECT '2023-11-01', "Miscellaneous", 4
+      UNION ALL SELECT '2023-11-01', "Payment Issue", 5
+      UNION ALL SELECT '2023-11-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2023-11-01', "Payment Issue", 7
+      UNION ALL SELECT '2023-11-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2023-11-01', "Payment Issue", 9
+      UNION ALL SELECT '2023-11-01', "Miscellaneous", 10
+
+      UNION ALL SELECT '2024-01-01', "Payment Issue", 1
+      UNION ALL SELECT '2024-01-01', "Billing Issue", 2
+      UNION ALL SELECT '2024-01-01', "Miscellaneous", 3
+      UNION ALL SELECT '2024-01-01', "Miscellaneous", 4
+      UNION ALL SELECT '2024-01-01', "Maintenance Issue", 5
+      UNION ALL SELECT '2024-01-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2024-01-01', "Meter Reading Issue", 7
+      UNION ALL SELECT '2024-01-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2024-01-01', "Miscellaneous", 9
+      UNION ALL SELECT '2024-01-01', "Miscellaneous", 10
+
+      UNION ALL SELECT '2024-02-01', "Payment Issue", 1
+      UNION ALL SELECT '2024-02-01', "Billing Issue", 2
+      UNION ALL SELECT '2024-02-01', "Miscellaneous", 3
+      UNION ALL SELECT '2024-02-01', "Miscellaneous", 4
+      UNION ALL SELECT '2024-02-01', "Maintenance Issue", 5
+      UNION ALL SELECT '2024-02-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2024-02-01', "Payment Issue", 7
+      UNION ALL SELECT '2024-02-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2024-02-01', "Payment Issue", 9
+      UNION ALL SELECT '2024-02-01', "Miscellaneous", 10
+
+      UNION ALL SELECT '2024-03-01', "Payment Issue", 1
+      UNION ALL SELECT '2024-03-01', "Billing Issue", 2
+      UNION ALL SELECT '2024-03-01', "Miscellaneous", 3
+      UNION ALL SELECT '2024-03-01', "Billing Issue", 4
+      UNION ALL SELECT '2024-03-01', "Maintenance Issue", 5
+      UNION ALL SELECT '2024-03-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2024-03-01', "Payment Issue", 7
+      UNION ALL SELECT '2024-03-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2024-03-01', "Payment Issue", 9
+      UNION ALL SELECT '2024-03-01', "Billing Issue", 10
+
+      UNION ALL SELECT '2024-04-01', "Payment Issue", 1
+      UNION ALL SELECT '2024-04-01', "Billing Issue", 2
+      UNION ALL SELECT '2024-04-01', "Miscellaneous", 3
+      UNION ALL SELECT '2024-04-01', "Billing Issue", 4
+      UNION ALL SELECT '2024-04-01', "Billing Issue", 5
+      UNION ALL SELECT '2024-04-01', "Maintenance Issue", 6
+      UNION ALL SELECT '2024-04-01', "Payment Issue", 7
+      UNION ALL SELECT '2024-04-01', "Meter Reading Issue", 8
+      UNION ALL SELECT '2024-04-01', "Payment Issue", 9
+      UNION ALL SELECT '2024-04-01', "Billing Issue", 10
+    )
+) complaint_types
+ON
+  CAST(FLOOR(RAND()*10) AS INT64) + 1 = complaint_types.id
+  AND a.submission_date >= DATE(complaint_types.from_date)
+  AND a.submission_date < IFNULL(DATE(complaint_types.to_date), DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))
 WHERE
-  RAND() > (query_complexity_rank/2) + resolve_time_rank + agent_inexperience_rank
-
-
-  
+  RAND() < interaction_experience_rating/8
+    + (((IF(customers.gas_usage_rank > 0.95, 0, customers.gas_usage_rank/2))
+    + (IF(electricity_usage_rank > 0.95, 0, electricity_usage_rank/4))
+    + IF(submission_date < DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH), 0, (last_meter_reading_rank/2))
+    )/8)
 
   

@@ -1,6 +1,3 @@
-
-
---SELECT CONCAT(a.name, ' ', b.name)
 SELECT
   a.rn AS id
   ,CONCAT(a.name, ' ', b.name) AS name
